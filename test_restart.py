@@ -139,6 +139,7 @@ def test_base_rebuilds_without_explicit_recipe(monkeypatch, tmp_path):
     # The base recipe carries no include dirs or extra loads.
     checkpoint_command = commands[2]
     assert checkpoint_command[checkpoint_command.index("--name") + 1] == "base"
+    assert checkpoint_command[checkpoint_command.index("--hol-dir") + 1] == str(tmp_path)
     assert "-I" not in checkpoint_command
     # Nothing follows --output-dir <dir> (no loads appended).
     assert checkpoint_command[-2] == "--output-dir"

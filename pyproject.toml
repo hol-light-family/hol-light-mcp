@@ -12,7 +12,7 @@ dependencies = [
 hol-light-mcp = "server:main"
 
 [tool.setuptools]
-py-modules = ["server"]
+py-modules = ["server", "hol_locate"]
 
 [dependency-groups]
 dev = [

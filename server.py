@@ -14,7 +14,8 @@ import tempfile
 import threading
 import time
 
-HOL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import hol_locate
+
 MCP_DIR = os.path.dirname(os.path.abspath(__file__))
 SENTINEL = "HOL_MCP_DONE_a7f3b2e1"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -46,6 +47,24 @@ def _load_config():
 
 
 _config, CONFIG_PATH = _load_config()
+
+try:
+    HOL_DIR = hol_locate.resolve_hol_dir(
+        flag=hol_locate.cli_arg(sys.argv, "--hol-dir"),
+        config_value=_config.get("hol_dir"),
+        config_path=CONFIG_PATH,
+    )
+    HOL_DIR_ERROR = None
+except ValueError as exc:
+    HOL_DIR = None
+    HOL_DIR_ERROR = str(exc)
+
+
+def _require_hol_dir():
+    """Return HOL_DIR, or raise a clear error if it was not configured."""
+    if HOL_DIR is None:
+        raise RuntimeError(HOL_DIR_ERROR or hol_locate.USAGE)
+    return HOL_DIR
 
 
 def _positive_int(value, name):
@@ -232,11 +251,12 @@ def _opam_env():
     ld_path = os.path.expanduser("~/.local/lib")
     if os.path.isdir(ld_path):
         env["LD_LIBRARY_PATH"] = ld_path + ":" + env.get("LD_LIBRARY_PATH", "")
-    if not os.path.isdir(os.path.join(HOL_DIR, "_opam")):
+    hol_dir = _require_hol_dir()
+    if not os.path.isdir(os.path.join(hol_dir, "_opam")):
         return env
     try:
         r = subprocess.run(
-            ["opam", "env", "--switch", HOL_DIR + "/", "--set-switch"],
+            ["opam", "env", "--switch", hol_dir + "/", "--set-switch"],
             capture_output=True, text=True,
         )
         for line in r.stdout.strip().split("\n"):
@@ -250,7 +270,7 @@ def _opam_env():
 
 
 def _checkpoint_dir(name):
-    return os.path.join(HOL_DIR, f"hol-{name}.ckpt")
+    return os.path.join(_require_hol_dir(), f"hol-{name}.ckpt")
 
 
 def _checkpoint_files(name):
@@ -297,6 +317,7 @@ def _start_hol(
         )
     if _proc is not None:
         return
+    hol_dir = _require_hol_dir()
     checkpoint = checkpoint or CHECKPOINT_NAME
     CHECKPOINT_NAME = checkpoint
     ckpt_files = _checkpoint_files(checkpoint)
@@ -322,19 +343,19 @@ def _start_hol(
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            cwd=HOL_DIR,
+            cwd=hol_dir,
             text=True,
             bufsize=1,
             env=_opam_env(),
         )
     else:
         _proc = subprocess.Popen(
-            [os.path.join(HOL_DIR, "ocaml-hol"), "-init",
-             os.path.join(HOL_DIR, "hol.ml"), "-I", HOL_DIR],
+            [os.path.join(hol_dir, "ocaml-hol"), "-init",
+             os.path.join(hol_dir, "hol.ml"), "-I", hol_dir],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            cwd=HOL_DIR,
+            cwd=hol_dir,
             text=True,
             bufsize=1,
             env=_opam_env(),
@@ -835,7 +856,7 @@ def _run_restart_command(command, stage):
     try:
         result = subprocess.run(
             command,
-            cwd=HOL_DIR,
+            cwd=_require_hol_dir(),
             env=_opam_env(),
             capture_output=True,
             text=True,
@@ -856,12 +877,14 @@ def _run_restart_command(command, stage):
 
 def _build_checkpoint(checkpoint, recipe):
     stage_dir = tempfile.mkdtemp(
-        prefix=f".hol-{checkpoint}.ckpt.", dir=HOL_DIR
+        prefix=f".hol-{checkpoint}.ckpt.", dir=_require_hol_dir()
     )
     shutil.rmtree(stage_dir)
     command = [
         sys.executable,
         os.path.join(MCP_DIR, "make_checkpoint.py"),
+        "--hol-dir",
+        HOL_DIR,
         "--name",
         checkpoint,
         "--output-dir",
@@ -1171,7 +1194,9 @@ def hol_status() -> str:
     startup mode, checkpoint fingerprint/staleness, and runtime limits.
     """
     alive = _proc is not None and _proc.poll() is None
-    current_fingerprint = _fingerprint_checkpoint(CHECKPOINT_NAME)
+    current_fingerprint = (
+        _fingerprint_checkpoint(CHECKPOINT_NAME) if HOL_DIR is not None else None
+    )
     checkpoint_stale = (
         _checkpoint_fingerprint is not None
         and current_fingerprint != _checkpoint_fingerprint
@@ -1182,6 +1207,8 @@ def hol_status() -> str:
         "checkpoint": CHECKPOINT_NAME,
         "configured_checkpoint": CONFIGURED_CHECKPOINT,
         "config": CONFIG_PATH,
+        "hol_dir": HOL_DIR,
+        "hol_dir_error": HOL_DIR_ERROR,
         "uptime_seconds": round(time.time() - _start_time, 1) if alive and _start_time else None,
         "timeout": TIMEOUT,
         "max_output_chars": MAX_OUTPUT_CHARS,

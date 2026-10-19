@@ -6,9 +6,13 @@ Each extra positional argument must be a single OCaml expression
 detect exceptions; multi-phrase inputs containing ';;' are not
 supported — place them in a file and load with needs or loadt.
 
+The HOL Light checkout is taken from --hol-dir or the HOL_LIGHT_DIR
+environment variable.
+
 Examples:
-    python3 mcp/make_checkpoint.py                          # base HOL Light
-    python3 mcp/make_checkpoint.py --name s2n \\
+    export HOL_LIGHT_DIR=/path/to/hol-light
+    python3 make_checkpoint.py                          # base HOL Light
+    python3 make_checkpoint.py --name s2n \\
         -I /path/to/s2n-bignum 'needs "arm/proofs/base.ml"'
 """
 import argparse
@@ -20,7 +24,9 @@ import subprocess
 import sys
 import time
 
-HOL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import hol_locate
+
+HOL_DIR = None  # set in main() from --hol-dir / HOL_LIGHT_DIR
 SENTINEL = "HOL_MCP_CKPT_READY"
 ERROR_SENTINEL = "HOL_MCP_LOAD_ERROR"
 
@@ -39,6 +45,8 @@ def parse_args():
                "Multi-phrase inputs containing ';;' are not supported; place "
                "them in a file and load with needs or loadt.",
     )
+    p.add_argument("--hol-dir",
+                   help=f"HOL Light checkout. Default: ${hol_locate.ENV_VAR}")
     p.add_argument("--name", default="base",
                    help="Checkpoint name (creates hol-<name>.ckpt/). Default: base")
     p.add_argument(
@@ -122,7 +130,12 @@ def send_and_wait(proc, code, error_msg):
 
 
 def main():
+    global HOL_DIR
     args = parse_args()
+    try:
+        HOL_DIR = hol_locate.resolve_hol_dir(flag=args.hol_dir)
+    except ValueError as exc:
+        fatal(str(exc))
     ckpt_dir = (
         os.path.abspath(args.output_dir)
         if args.output_dir

@@ -3,13 +3,17 @@
 
 import asyncio
 import json
+import os
 import sys
 from mcp.client.stdio import stdio_client, StdioServerParameters
 from mcp.client.session import ClientSession
 
+# The stdio client only forwards a small default environment, so pass ours
+# through explicitly (the server needs HOL_LIGHT_DIR).
 SERVER = StdioServerParameters(
     command="uv",
-    args=["run", "--directory", __import__("os").path.dirname(__import__("os").path.abspath(__file__)), "hol-light-mcp"],
+    args=["run", "--directory", os.path.dirname(os.path.abspath(__file__)), "hol-light-mcp"],
+    env=dict(os.environ),
 )
 
 passed = 0
