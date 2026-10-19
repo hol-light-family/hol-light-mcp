@@ -56,11 +56,23 @@ See [TUTORIAL.md](TUTORIAL.md) for more examples (including s2n-bignum ARM proof
 
 ## Setup
 
+Build HOL Light, then install the server:
+
 ```bash
-cd mcp && uv sync
+git clone https://github.com/jrh13/hol-light.git
+(cd hol-light && make switch && eval $(opam env) && make)
+
+git clone https://github.com/hol-light-family/hol-light-mcp.git
+cd hol-light-mcp && uv sync
 ```
 
-Requires HOL Light built in the parent directory (`make switch && eval $(opam env) && make`).
+The server needs to know where HOL Light is. It checks, in order:
+
+1. `--hol-dir /path/to/hol-light` on the command line
+2. the `HOL_LIGHT_DIR` environment variable
+3. `hol_dir = "/path/to/hol-light"` in `hol-mcp.toml` (relative paths are resolved against the config file)
+
+If none is set, the server exits with an error naming these options.
 
 ## Checkpointing (optional, recommended)
 
@@ -77,20 +89,26 @@ Create named checkpoints:
 
 ```bash
 export LD_LIBRARY_PATH="$HOME/.local/lib:$LD_LIBRARY_PATH"
+export HOL_LIGHT_DIR=/path/to/hol-light   # or pass --hol-dir
 
 # Base HOL Light (~75s)
-python3 mcp/make_checkpoint.py --name base
+python3 make_checkpoint.py --name base
 
 # With s2n-bignum ARM infrastructure (~5-10min)
-python3 mcp/make_checkpoint.py --name s2n -I /path/to/s2n-bignum 'needs "arm/proofs/base.ml"'
+python3 make_checkpoint.py --name s2n -I /path/to/s2n-bignum 'needs "arm/proofs/base.ml"'
 ```
+
+Checkpoints are written to `$HOL_LIGHT_DIR/hol-<name>.ckpt/`.
 
 ## Configuration
 
-By default, the server loads `/path/to/hol-light/mcp/hol-mcp.toml`. To use a different config, pass `--config /absolute/path/to/hol-mcp.toml`.
+By default, the server loads `hol-mcp.toml` from the current directory, falling back to the one in this repo. To use a different config, pass `--config /absolute/path/to/hol-mcp.toml` or set `HOL_MCP_CONFIG`.
 
 ```toml
-# Which checkpoint to use (looks for /path/to/hol-light/hol-<name>.ckpt/).
+# HOL Light checkout (overridden by --hol-dir or HOL_LIGHT_DIR).
+hol_dir = "/path/to/hol-light"
+
+# Which checkpoint to use (looks for <hol_dir>/hol-<name>.ckpt/).
 checkpoint = "s2n"
 
 # Timeout in seconds for HOL Light commands.
@@ -128,7 +146,7 @@ required.
 ## Usage
 
 ```bash
-uv run hol-light-mcp
+uv run hol-light-mcp --hol-dir /path/to/hol-light
 uv run hol-light-mcp --config /path/to/hol-mcp.toml
 ```
 
@@ -143,10 +161,11 @@ The server speaks MCP over stdio.
   "mcpServers": {
     "hol-light": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/hol-light/mcp", "hol-light-mcp",
+      "args": ["run", "--directory", "/path/to/hol-light-mcp", "hol-light-mcp",
                "--config", "/path/to/your/project/hol-mcp.toml"],
       "env": {
-        "PATH": "/home/user/.local/bin:/usr/bin:/bin"
+        "PATH": "/home/user/.local/bin:/usr/bin:/bin",
+        "HOL_LIGHT_DIR": "/path/to/hol-light"
       }
     }
   }
@@ -160,9 +179,9 @@ The server includes a built-in `hol_help` tool that returns the full tactic refe
 ## Tests
 
 ```bash
-cd mcp
-uv run pytest test_server.py test_restart.py -v   # 63 unit tests
-uv run python smoke_test.py                        # 37 MCP integration checks
+export HOL_LIGHT_DIR=/path/to/hol-light
+uv run pytest test_server.py test_restart.py test_hol_locate.py -v   # 72 unit tests
+uv run python smoke_test.py                                          # 37 MCP integration checks
 ```
 
 First run includes HOL Light startup (~75s cold, ~2s with checkpoint).

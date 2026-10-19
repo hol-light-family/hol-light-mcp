@@ -1,9 +1,13 @@
 # HOL Light MCP server configuration.
-# This file is loaded by default from /path/to/hol-light/mcp/hol-mcp.toml.
-# To use a different config, pass --config /absolute/path/to/hol-mcp.toml.
+# Loaded by default from the current directory, else from the hol-light-mcp
+# checkout. To use a different config, pass --config /absolute/path/to/hol-mcp.toml.
 
-# Which checkpoint to use (looks for hol-<name>.ckpt/ in HOL Light root).
-# Create with: python3 mcp/make_checkpoint.py --name <name> [options]
+# HOL Light checkout. Relative paths are resolved against this file.
+# Overridden by --hol-dir or the HOL_LIGHT_DIR environment variable.
+# hol_dir = "/path/to/hol-light"
+
+# Which checkpoint to use (looks for hol-<name>.ckpt/ in the HOL Light dir).
+# Create with: python3 make_checkpoint.py --name <name> [options]
 checkpoint = "base"
 
 # Timeout in seconds for HOL Light commands.

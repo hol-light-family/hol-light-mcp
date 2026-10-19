@@ -1,0 +1,51 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  mcp-tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    name: MCP unit & smoke tests
+    env:
+      HOL_LIGHT_DIR: ${{ github.workspace }}/hol-light
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Checkout HOL Light
+        uses: actions/checkout@v7
+        with:
+          repository: jrh13/hol-light
+          path: hol-light
+
+      - name: Install opam & build HOL Light
+        working-directory: hol-light
+        run: |
+          sudo apt update && sudo apt install -y opam xdot
+          opam init --disable-sandboxing
+          make switch
+          eval $(opam env)
+          make
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install MCP dependencies
+        run: uv sync
+
+      - name: Run unit tests
+        run: |
+          eval $(opam env --switch "$HOL_LIGHT_DIR/" --set-switch)
+          uv run pytest test_server.py test_restart.py test_hol_locate.py -v
+
+      - name: Run smoke tests
+        run: |
+          eval $(opam env --switch "$HOL_LIGHT_DIR/" --set-switch)
+          uv run python smoke_test.py
