@@ -3,6 +3,8 @@ name = "hol-light-mcp"
 version = "0.1.0"
 description = "MCP server for HOL Light theorem prover"
 readme = "README.md"
+license = "BSD-2-Clause"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.26.0",
@@ -20,5 +22,5 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"

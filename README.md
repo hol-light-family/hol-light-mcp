@@ -201,3 +201,7 @@ We take a different approach: we embed HOL Light as a subprocess (no external se
 ## Acknowledgments
 
 Thanks to kceren for advice on HOL Light tactics and proof patterns, to nebeid for suggesting named checkpoints, and to the s2n-bignum team for encouragement and tutorial examples.
+
+## License
+
+BSD 2-Clause, the same license as HOL Light. See [LICENSE](LICENSE).
