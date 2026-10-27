@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Checkout HOL Light
         uses: actions/checkout@v7
@@ -43,7 +45,7 @@ jobs:
       - name: Run unit tests
         run: |
           eval $(opam env --switch "$HOL_LIGHT_DIR/" --set-switch)
-          uv run pytest test_server.py test_restart.py test_hol_locate.py -v
+          uv run pytest test_server.py test_restart.py test_hol_locate.py test_language_server.py -v
 
       - name: Run smoke tests
         run: |

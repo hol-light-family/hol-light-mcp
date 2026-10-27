@@ -1,0 +1,3 @@
+[submodule "hol-language-server"]
+	path = hol-language-server
+	url = https://github.com/hol-light-family/hol-language-server.git
