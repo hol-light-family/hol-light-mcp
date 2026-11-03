@@ -15,6 +15,7 @@ import threading
 import time
 
 import hol_locate
+import language_server
 
 MCP_DIR = os.path.dirname(os.path.abspath(__file__))
 SENTINEL = "HOL_MCP_DONE_a7f3b2e1"
@@ -186,6 +187,11 @@ def _config_snapshot(config):
 
 
 _runtime_config = _effective_config(_config, CONFIG_PATH)
+LANGUAGE_SERVER_CONFIG = language_server.language_server_config(
+    _config, CONFIG_PATH,
+    enable_flag="--enable-language-server" in sys.argv,
+    workspace_flag=hol_locate.cli_arg(sys.argv, "--language-server-workspace"))
+_language_server = None
 TIMEOUT = _runtime_config["timeout"]
 CONFIGURED_CHECKPOINT = _runtime_config["checkpoint"]
 CHECKPOINT_NAME = CONFIGURED_CHECKPOINT
@@ -1219,6 +1225,7 @@ def hol_status() -> str:
         "checkpoint_stale": checkpoint_stale,
         "restart_required": _restart_required,
         "restart_error": _restart_error,
+        "language_server": _language_server.status() if _language_server else None,
     })
 
 
@@ -1458,6 +1465,12 @@ def stop_recording() -> str:
 
 
 def main():
+    global _language_server
+    if LANGUAGE_SERVER_CONFIG is not None:
+        _language_server = language_server.LanguageServer(HOL_DIR, LANGUAGE_SERVER_CONFIG)
+        language_server.register(mcp, _language_server)
+        # Indexes while HOL Light starts.
+        _language_server.start_indexing()
     _start_hol()
     mcp.run(transport="stdio")
 

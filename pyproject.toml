@@ -5,8 +5,9 @@ description = "MCP server for HOL Light theorem prover"
 readme = "README.md"
 license = "BSD-2-Clause"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
+    "hol-language-server",
     "mcp>=1.26.0",
 ]
 
@@ -14,7 +15,15 @@ dependencies = [
 hol-light-mcp = "server:main"
 
 [tool.setuptools]
-py-modules = ["server", "hol_locate"]
+py-modules = ["server", "hol_locate", "language_server"]
+
+[tool.uv.workspace]
+members = [
+    "hol-language-server",
+]
+
+[tool.uv.sources]
+hol-language-server = { workspace = true, editable = true }
 
 [dependency-groups]
 dev = [
