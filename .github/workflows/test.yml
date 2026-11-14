@@ -18,8 +18,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: true
 
       - name: Checkout HOL Light
         uses: actions/checkout@v7
@@ -51,3 +49,7 @@ jobs:
         run: |
           eval $(opam env --switch "$HOL_LIGHT_DIR/" --set-switch)
           uv run python smoke_test.py
+
+      # The steps above run without the extra: the server must work without it.
+      - name: Run language server tests (Python 3.12, language-server extra)
+        run: uv run --python 3.12 --extra language-server pytest test_language_server.py -v

@@ -1,5 +1,5 @@
-"""Optional static source lookup for HOL Light, from hol-language-server
-(a submodule and path dependency): the `definition_source` tool.
+"""Optional static source lookup for HOL Light, from hol-language-server:
+the `definition_source` tool.
 
 Finds where a named theorem, definition, or tactic is defined, with its
 source and statement. Parses files and the files they load with
@@ -7,7 +7,9 @@ needs/loads/loadt, plus the core HOL Light sources. Never talks to the HOL
 Light process, so it works while HOL is starting, busy, or down.
 
 Enabled by `[language_server] enabled = true` in hol-mcp.toml or by the
---enable-language-server flag.
+--enable-language-server flag. hol-language-server comes from the
+`language-server` extra (Python 3.12+). It is imported only when the tool is
+enabled, so the server runs without it.
 """
 
 import asyncio
@@ -17,9 +19,6 @@ import os
 import threading
 from typing import Annotated
 
-from hol_language_server_core import config as core_config
-from hol_language_server_core import parser as core_parser
-from hol_language_server_core import service as core_service
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
@@ -27,8 +26,26 @@ import hol_locate
 
 logger = logging.getLogger(__name__)
 
+# How long a call waits for the startup index before it reports that
+# indexing is still running.
+WAIT_SECONDS = 20.0
 
-def _string_list(value, name):
+INSTALL_HINT = (
+    "definition_source needs the language-server extra, which needs Python 3.12+: "
+    "run `uv sync --extra language-server` in the hol-light-mcp checkout."
+)
+
+NO_WORKSPACE_HINT = (
+    "No workspace is set, so only the HOL Light sources are indexed. Set one with "
+    "--language-server-workspace /path/to/project or workspace under [language_server]."
+)
+
+
+def _string_list(section, name):
+    """The array of strings under `name`, or None when it is absent."""
+    if name not in section:
+        return None
+    value = section[name]
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise ValueError(f"language_server.{name} must be an array of strings")
     return list(value)
@@ -38,13 +55,13 @@ def language_server_config(config, config_path, enable_flag=False, workspace_fla
     """Validate the [language_server] table of hol-mcp.toml. Returns None when
     the language server is disabled (neither enabled in the table nor by
     --enable-language-server), else its effective settings. The workspace
-    is, in order: --language-server-workspace (relative to the current
-    directory), workspace in the table (relative to the config file), the
-    current directory."""
+    is --language-server-workspace (relative to the current directory), else
+    workspace in the table (relative to the config file), else None: then no
+    project is indexed, only HOL Light."""
     section = config.get("language_server", {})
     if not isinstance(section, dict):
         raise ValueError("language_server must be a TOML table")
-    known = {"enabled", "workspace", "root_paths", "index_workspace",
+    known = {"enabled", "workspace", "root_paths", "load_path", "index_workspace",
              "custom_imports", "custom_theorems", "custom_definitions"}
     unknown = sorted(set(section) - known)
     if unknown:
@@ -67,52 +84,87 @@ def language_server_config(config, config_path, enable_flag=False, workspace_fla
         if config_path and not os.path.isabs(workspace):
             workspace = os.path.join(os.path.dirname(config_path), workspace)
     return {
-        "workspace": os.path.abspath(workspace or os.getcwd()),
-        "root_paths": _string_list(section.get("root_paths", core_config.DEFAULT_ROOT_PATHS), "root_paths"),
+        "workspace": os.path.abspath(workspace) if workspace else None,
+        # None: hol-language-server's defaults.
+        "root_paths": _string_list(section, "root_paths"),
+        # None: $HOLLIGHT_LOAD_PATH, as HOL Light reads it.
+        "load_path": _string_list(section, "load_path"),
         "index_workspace": index_workspace,
-        "custom_imports": _string_list(section.get("custom_imports", []), "custom_imports"),
-        "custom_theorems": _string_list(section.get("custom_theorems", []), "custom_theorems"),
-        "custom_definitions": _string_list(section.get("custom_definitions", []), "custom_definitions"),
+        "custom_imports": _string_list(section, "custom_imports") or [],
+        "custom_theorems": _string_list(section, "custom_theorems") or [],
+        "custom_definitions": _string_list(section, "custom_definitions") or [],
     }
 
 
 class LanguageServer:
     """The index, built in a background thread so the server starts at once.
-    Calls made during indexing wait until it is done."""
+    A call made during indexing waits up to WAIT_SECONDS for it.
 
-    def __init__(self, hol_dir, ls_config):
-        self.settings = core_config.Settings(
-            hol_path=hol_dir or "",
-            root_paths=ls_config["root_paths"],
-            workspace=ls_config["workspace"],
-            index_workspace=ls_config["index_workspace"],
-            custom_commands=core_parser.CustomCommands(
-                imports=core_config._command_names(
-                    ls_config["custom_imports"], "language_server.custom_imports"),
-                theorems=core_config._command_names(
-                    ls_config["custom_theorems"], "language_server.custom_theorems"),
-                definitions=core_config._command_names(
-                    ls_config["custom_definitions"], "language_server.custom_definitions"),
-            ),
-        )
-        # A bad search path is a config error: report it at startup. Without
-        # a HOL Light directory, the tool reports that instead.
-        if hol_dir:
-            core_config.expand_root_paths(self.settings)
-        self.service = core_service.HolLanguageService(self.settings)
+    A problem that stops the index (no hol-language-server, no HOL Light
+    directory, a bad workspace or setting) does not stop the MCP server: the
+    tool and hol_status report it."""
+
+    def __init__(self, hol_dir, ls_config, hol_dir_error=None):
+        self.workspace = ls_config["workspace"]
+        self.settings = None
+        self.service = None
         self._lock = threading.Lock()
         self._ready = threading.Event()
         self._error = None
         self._thread = None
+        try:
+            self._setup(hol_dir, hol_dir_error, ls_config)
+        except ImportError:
+            self._fail(INSTALL_HINT)
+        except ValueError as exc:
+            self._fail(str(exc))
+
+    def _setup(self, hol_dir, hol_dir_error, ls_config):
+        from hol_language_server_core import config as core_config
+        from hol_language_server_core import service as core_service
+
+        if hol_dir is None:
+            raise ValueError(hol_dir_error or hol_locate.USAGE)
+        workspace = self.workspace
+        if workspace is not None and not os.path.isdir(workspace):
+            raise ValueError(f"The language server workspace {workspace} is not a directory")
+        root_paths = ls_config["root_paths"]
+        if root_paths is None:
+            root_paths = [path for path in core_config.DEFAULT_ROOT_PATHS
+                          if workspace is not None or path != "{workspace}"]
+        load_path = ls_config["load_path"]
+        if load_path is None:
+            load_path = core_config.split_load_path(os.environ.get("HOLLIGHT_LOAD_PATH", ""))
+        base = core_config.Settings(workspace=workspace or "", load_path=load_path)
+        try:
+            self.settings = core_config.settings_from_options({
+                "path": hol_dir,
+                "rootPaths": root_paths,
+                "indexWorkspace": ls_config["index_workspace"] and workspace is not None,
+                "customImports": ls_config["custom_imports"],
+                "customTheorems": ls_config["custom_theorems"],
+                "customDefinitions": ls_config["custom_definitions"],
+            }, base)
+            # Raises on a bad search path.
+            core_config.expand_root_paths(self.settings)
+        except ValueError as exc:
+            raise ValueError(f"Invalid [language_server] settings: {exc}") from exc
+        self.service = core_service.HolLanguageService(self.settings)
+        self._resolve_path = core_service.resolve_path
+
+    def _fail(self, message):
+        logger.error("Language server unavailable: %s", message)
+        self._error = message
+        self._ready.set()
 
     def start_indexing(self):
+        if self._ready.is_set():
+            return
         self._thread = threading.Thread(target=self._index, daemon=True)
         self._thread.start()
 
     def _index(self):
         try:
-            if not self.settings.hol_path:
-                raise ValueError(hol_locate.USAGE)
             with self._lock:
                 self.service.database.index_base_hol_light_files(
                     self.settings.hol_path, self.settings.custom_commands)
@@ -123,51 +175,96 @@ class LanguageServer:
                                        ", ".join(sorted({dep.name for dep in unresolved})))
         except Exception as exc:
             logger.error("Language server indexing failed: %s", exc)
-            self._error = str(exc)
+            self._error = f"Indexing failed: {exc}"
         finally:
             self._ready.set()
 
     def status(self):
         return {
-            "workspace": self.settings.workspace,
+            "workspace": self.workspace,
             "indexing": not self._ready.is_set(),
             "error": self._error,
         }
 
     def definition_source(self, name, file=None, max_chars=None):
-        self._ready.wait()
+        if not self._ready.wait(WAIT_SECONDS):
+            raise RuntimeError(
+                "The language server is still indexing the workspace. Try again shortly; "
+                "hol_status shows language_server.indexing = false when it is done.")
         if self._error:
-            raise RuntimeError(f"Language server indexing failed: {self._error}")
+            raise RuntimeError(f"Language server unavailable: {self._error}")
         with self._lock:
             return self._definition_source(name, file, max_chars)
 
+    def _fresh_symbols(self, name, deps):
+        """The definitions of name, after indexing again each project file
+        that holds one, so their offsets match the file as it is now. A file
+        that can no longer be read is left out."""
+        service = self.service
+        database = service.database
+
+        def find(gone=frozenset()):
+            return [s for s in service.find_symbols(name, deps)
+                    if s.kind != "module" and s.path not in gone]
+
+        gone = set()
+        for path in sorted({s.path for s in find()}):
+            # The core HOL Light files are indexed once, at startup.
+            if database.is_base_hol_light_file(path):
+                continue
+            try:
+                # Parses the file again only if its text changed.
+                service.index(path, False)
+            except OSError:
+                gone.add(path)
+        return find(gone)
+
     def _definition_source(self, name, file, max_chars):
         service = self.service
+        workspace = self.settings.workspace
         unresolved = []
         deps = None
         if file is not None:
+            file = os.path.expanduser(file)
+            if not workspace and not os.path.isabs(file):
+                raise ValueError(f"{file} is relative, but no workspace is set: pass an absolute path.")
+            file_path = self._resolve_path(file, workspace)
+            if not os.path.isfile(file_path):
+                raise ValueError(f"No such file: {file_path}")
             # Indexes the file and its dependencies. Unchanged files are not parsed again.
-            file_path = core_service.resolve_path(file, self.settings.workspace)
             unresolved = sorted({dep.name for dep in service.index(file_path, True)})
             deps = service.database.all_dependencies(file_path)
-        symbols = [s for s in service.find_symbols(name, deps) if s.kind != "module"]
+        symbols = self._fresh_symbols(name, deps)
         if not symbols:
             raise ValueError(
                 f"No definition of {name} is indexed"
                 + (f" in {file} or its dependencies" if file else "")
                 + ". Try the qualified name (Module.name)."
                 + (f" Loads that could not be found: {', '.join(unresolved)}." if unresolved else "")
+                + ("" if workspace else " " + NO_WORKSPACE_HINT)
             )
         definitions = []
         seen = set()
+        texts = {}
         for symbol in symbols:
-            source = service.source(symbol)
-            text = source.doc.text[source.start:source.end] if source else ""
+            text = ""
+            if symbol.source_start is not None and symbol.source_end is not None:
+                if symbol.path not in texts:
+                    try:
+                        texts[symbol.path] = service.get_document(symbol.path).text
+                    except OSError:
+                        # Removed since _fresh_symbols read it.
+                        texts[symbol.path] = None
+                if texts[symbol.path] is None:
+                    continue
+                text = texts[symbol.path][symbol.source_start:symbol.source_end]
             # A value's content is its type, not a statement.
             statement = symbol.content if symbol.kind != "value" and symbol.content else None
-            # The same file can reach the index under two paths; collapse
-            # byte-identical definitions so each is reported once.
-            identity = json.dumps([symbol.full_name, symbol.kind, text, statement])
+            # The same file can reach the index under two paths, and a file
+            # can repeat a definition word for word: report those once.
+            # Definitions in different files stay separate.
+            identity = json.dumps([os.path.realpath(symbol.path), symbol.full_name,
+                                   symbol.kind, text, statement])
             if identity in seen:
                 continue
             seen.add(identity)
@@ -190,6 +287,8 @@ class LanguageServer:
                 entry["statement_truncated"] = True
                 entry["statement_chars"] = len(statement)
             definitions.append(entry)
+        if not definitions:
+            raise ValueError(f"Every file that defined {name} has been removed.")
         result = {"definitions": definitions}
         if unresolved:
             result["unresolved_loads"] = unresolved

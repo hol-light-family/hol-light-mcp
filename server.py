@@ -1467,7 +1467,8 @@ def stop_recording() -> str:
 def main():
     global _language_server
     if LANGUAGE_SERVER_CONFIG is not None:
-        _language_server = language_server.LanguageServer(HOL_DIR, LANGUAGE_SERVER_CONFIG)
+        _language_server = language_server.LanguageServer(
+            HOL_DIR, LANGUAGE_SERVER_CONFIG, hol_dir_error=HOL_DIR_ERROR)
         language_server.register(mcp, _language_server)
         # Indexes while HOL Light starts.
         _language_server.start_indexing()
