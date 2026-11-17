@@ -151,7 +151,7 @@ required.
 
 The `definition_source` tool comes from [hol-language-server](https://github.com/hol-light-family/hol-language-server).
 It parses HOL Light and project sources and never talks to the HOL process, so
-it answers while HOL is starting, busy, or down. It is off by default.
+it answers while HOL is starting or down. It is off by default.
 
 - Install it with `uv sync --extra language-server`. It needs Python 3.12+.
 - Enable it with `--enable-language-server`, or `enabled = true` under
@@ -183,7 +183,11 @@ s2n-bignum:
          "--language-server-workspace", "/path/to/s2n-bignum"]
 ```
 
-Indexing a project the size of s2n-bignum takes about 10 seconds.
+Indexing a project the size of s2n-bignum can take half a minute or more.
+A call made sooner reports that indexing is still running; try it again.
+
+The tool does not answer while another HOL tool such as `eval` runs. It
+answers when that tool returns.
 
 `definition_source(name, file=None, max_chars=None)` returns, for each indexed
 definition of `name`, its file, the 1-based line and column of the name, its
@@ -232,7 +236,7 @@ The server includes a built-in `hol_help` tool that returns the full tactic refe
 export HOL_LIGHT_DIR=/path/to/hol-light
 uv run pytest test_server.py test_restart.py test_hol_locate.py -v   # 72 unit tests
 uv run python smoke_test.py                                          # 37 MCP integration checks
-uv run --python 3.12 --extra language-server pytest test_language_server.py -v   # needs no HOL Light
+uv run --extra language-server pytest test_language_server.py -v   # needs no HOL Light
 ```
 
 First run includes HOL Light startup (~75s cold, ~2s with checkpoint).

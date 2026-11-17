@@ -4,7 +4,8 @@ the `definition_source` tool.
 Finds where a named theorem, definition, or tactic is defined, with its
 source and statement. Parses files and the files they load with
 needs/loads/loadt, plus the core HOL Light sources. Never talks to the HOL
-Light process, so it works while HOL is starting, busy, or down.
+Light process, so it works while HOL is starting or down. It does not answer
+while another HOL tool such as eval runs: those block the event loop.
 
 Enabled by `[language_server] enabled = true` in hol-mcp.toml or by the
 --enable-language-server flag. hol-language-server comes from the
