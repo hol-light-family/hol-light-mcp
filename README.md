@@ -49,6 +49,7 @@ See [TUTORIAL.md](TUTORIAL.md) for more examples (including s2n-bignum ARM proof
 | `hol_help` | Return tactic reference and proof guide (SKILL.md) | Markdown text |
 | `start_recording` | Start recording proof tactics to a JSONL file | Status message |
 | `stop_recording` | Stop recording and return the file path | Status message |
+| `definition_source` | Where a name is defined and its source, parsed without running HOL ([optional](#language-server-optional)) | Structured JSON |
 
 `eval` returns `{"success", "output", "output_truncated", "full_output_chars", "time_seconds"}`. Large outputs are truncated to `max_output_chars` (default 4000, configurable). Override per-call with `max_output_chars=N`.
 
@@ -65,6 +66,9 @@ git clone https://github.com/jrh13/hol-light.git
 git clone https://github.com/hol-light-family/hol-light-mcp.git
 cd hol-light-mcp && uv sync
 ```
+
+The server needs Python 3.11+. The optional `definition_source` tool needs
+Python 3.12+ and an extra: see [Language Server](#language-server-optional).
 
 The server needs to know where HOL Light is. It checks, in order:
 
@@ -143,6 +147,56 @@ IDs, startup mode, changed config values, and failure diagnostics. Use
 whether its files have changed since startup, and whether a rebuild is
 required.
 
+## Language Server (optional)
+
+The `definition_source` tool comes from [hol-language-server](https://github.com/hol-light-family/hol-language-server).
+It parses HOL Light and project sources and never talks to the HOL process, so
+it answers while HOL is starting or down. It is off by default.
+
+- Install it with `uv sync --extra language-server`. It needs Python 3.12+.
+- Enable it with `--enable-language-server`, or `enabled = true` under
+  `[language_server]` in `hol-mcp.toml` (other keys: see that file).
+- Set the project to index with `--language-server-workspace /path/to/project`,
+  or `workspace` under `[language_server]`.
+  - Without one, only the core HOL Light files are indexed.
+  - It is not the current directory: clients often start the server in the
+    hol-light-mcp checkout.
+- `needs` paths are searched in the loading file's directory, HOL Light, the
+  workspace, then `$HOLLIGHT_LOAD_PATH` (or `load_path` in the config).
+- Indexing runs in the background at startup.
+  - A call made before it finishes waits up to 20 seconds, then reports that
+    indexing is still running.
+  - `hol_status` reports its progress and any error under `language_server`.
+- Each call parses again the files that define the name if they changed. A
+  call with `file` does the same for that file and the files it loads.
+- A problem such as a missing extra or a bad workspace does not stop the
+  server: the tool and `hol_status` report it.
+- The settings are read once at startup; `hol_restart` does not reload them.
+
+To use it from a client, add `--extra language-server` and the flags to the
+`args` of the [client configuration](#client-configuration). For example, for
+s2n-bignum:
+
+```json
+"args": ["run", "--extra", "language-server", "--directory", "/path/to/hol-light-mcp",
+         "hol-light-mcp", "--enable-language-server",
+         "--language-server-workspace", "/path/to/s2n-bignum"]
+```
+
+Indexing a project the size of s2n-bignum can take half a minute or more.
+A call made sooner reports that indexing is still running; try it again.
+
+The tool does not answer while another HOL tool such as `eval` runs. It
+answers when that tool returns.
+
+`definition_source(name, file=None, max_chars=None)` returns, for each indexed
+definition of `name`, its file, the 1-based line and column of the name, its
+source, and for theorems and constant definitions their statement. It does
+not follow the names a definition uses; look those up by name. With `file`,
+only the definitions that file sees are returned, and `unresolved_loads`
+lists the loads that could not be found. With `max_chars`, a longer source or
+statement is cut and marked; without it, both are returned whole.
+
 ## Usage
 
 ```bash
@@ -182,6 +236,7 @@ The server includes a built-in `hol_help` tool that returns the full tactic refe
 export HOL_LIGHT_DIR=/path/to/hol-light
 uv run pytest test_server.py test_restart.py test_hol_locate.py -v   # 72 unit tests
 uv run python smoke_test.py                                          # 37 MCP integration checks
+uv run --extra language-server pytest test_language_server.py -v   # needs no HOL Light
 ```
 
 First run includes HOL Light startup (~75s cold, ~2s with checkpoint).

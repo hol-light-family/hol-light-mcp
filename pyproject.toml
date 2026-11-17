@@ -10,11 +10,17 @@ dependencies = [
     "mcp>=1.26.0",
 ]
 
+[project.optional-dependencies]
+# The definition_source tool. hol-language-server needs Python 3.12+.
+language-server = [
+    "hol-language-server @ git+https://github.com/hol-light-family/hol-language-server@8a95da7bc90e2b84f273b0dcf366cb3215745cd1 ; python_version >= '3.12'",
+]
+
 [project.scripts]
 hol-light-mcp = "server:main"
 
 [tool.setuptools]
-py-modules = ["server", "hol_locate"]
+py-modules = ["server", "hol_locate", "language_server"]
 
 [dependency-groups]
 dev = [

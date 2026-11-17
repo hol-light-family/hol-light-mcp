@@ -39,3 +39,27 @@ max_output_chars = 4000
 # [checkpoint_recipes.gcm]
 # include_dirs = ["/path/to/s2n-bignum"]
 # loads = ['needs "arm/proofs/base.ml"', 'needs "common/gcm.ml"']
+
+# Optional static source lookup: the definition_source tool, from
+# hol-language-server. It parses sources and never runs HOL Light. Needs
+# `uv sync --extra language-server` (Python 3.12+). Also enabled by
+# --enable-language-server. Read once at startup; hol_restart does not reload it.
+[language_server]
+enabled = false
+# Project root, searched for .ml/.hl files and used for {workspace} below.
+# Relative paths are resolved against this file. Default: none, and then only
+# HOL Light itself is indexed.
+# Overridden by --language-server-workspace (relative to the current directory).
+# workspace = "/path/to/s2n-bignum"
+# Where `needs "..."` paths are searched, in order. `.` is the loading file's
+# directory; {hol} is hol_dir. Default without a workspace: [".", "{hol}"].
+# root_paths = [".", "{hol}", "{workspace}"]
+# Searched after root_paths, like HOL Light's load_path. Default: the
+# directories in $HOLLIGHT_LOAD_PATH.
+# load_path = []
+# Index every .ml/.hl file of the workspace at startup (default true).
+# index_workspace = true
+# The project's own commands that behave like needs / prove / new_definition.
+# custom_imports = []
+# custom_theorems = []
+# custom_definitions = []

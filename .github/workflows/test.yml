@@ -38,14 +38,19 @@ jobs:
         uses: astral-sh/setup-uv@v7
 
       - name: Install MCP dependencies
-        run: uv sync
+        run: uv sync --python 3.11
 
       - name: Run unit tests
         run: |
           eval $(opam env --switch "$HOL_LIGHT_DIR/" --set-switch)
-          uv run pytest test_server.py test_restart.py test_hol_locate.py -v
+          uv run --python 3.11 pytest test_server.py test_restart.py test_hol_locate.py test_language_server.py -v
 
       - name: Run smoke tests
         run: |
           eval $(opam env --switch "$HOL_LIGHT_DIR/" --set-switch)
-          uv run python smoke_test.py
+          uv run --python 3.11 python smoke_test.py
+
+      # The steps above run on Python 3.11 without the extra: the server must
+      # work without it. .python-version (3.12) is the default for the extra.
+      - name: Run language server tests (Python 3.12, language-server extra)
+        run: uv run --extra language-server pytest test_language_server.py -v
